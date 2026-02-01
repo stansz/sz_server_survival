@@ -11,6 +11,11 @@
 
 ---
 
+## 🤖 AI/Vibe Coded Project
+
+> **Note**: This project is primarily developed using AI-assisted coding tools for educational purposes. It serves as a demonstration of how modern agentic coding can help build applications. 
+
+
 ## 🎯 Overview
 
 **Server Survival** is a modern Progressive Web App (PWA) tower defense game that teaches cloud architecture concepts through interactive 3D gameplay.
@@ -239,6 +244,13 @@ This project is inspired by and based on the original **Server Survival** concep
 - **Pavlo Shenok** ([@pshenok](https://github.com/pshenok)) - Original game creator
 - Original Repository: [github.com/pshenok/server-survival](https://github.com/pshenok/server-survival)
 - All credit for the original gameplay mechanics, cloud infrastructure concepts, and game design goes to the original author
+
+### AI Development Tools
+This project was developed with the assistance of modern AI coding tools:
+- **Kilo Code** - AI-powered development environment and code generation platform that provided intelligent code completion, refactoring suggestions, and architectural guidance throughout the development process
+- **zAI's GLM 4.7** - Large language model used for code generation, documentation, problem-solving, and implementation guidance across all aspects of the project
+
+These tools helped accelerate development while maintaining code quality, following best practices, and ensuring comprehensive documentation. The human developer provided creative direction, architectural decisions, and oversight throughout the process.
 
 ### Tools & Technologies
 - [Babylon.js](https://www.babylonjs.com/) team for the amazing 3D engine
