@@ -84,70 +84,49 @@ UI Components:
 
 ## Source Code Paths
 
-### Planned Directory Structure
+### Current Directory Structure
 
 ```
 sz_server_survival/
 ├── public/
 │   ├── index.html          # Main HTML entry point
-│   ├── manifest.json       # PWA manifest
-│   ├── sw.js              # Service worker
-│   └── assets/            # Static assets (images, models)
+│   ├── vite.svg          # Vite logo
+│   └── assets/           # Static assets (images, models)
 ├── src/
-│   ├── main.ts            # Application entry point
+│   ├── main.ts           # Application entry point (test scene)
 │   ├── config/
-│   │   ├── game.config.ts      # Game configuration
-│   │   ├── services.config.ts  # Service definitions
-│   │   └── traffic.config.ts   # Traffic definitions
-│   ├── scenes/
-│   │   ├── BootScene.ts
-│   │   ├── MenuScene.ts
-│   │   ├── GameScene.ts
-│   │   ├── PauseScene.ts
-│   │   ├── GameOverScene.ts
-│   │   └── SandboxScene.ts
+│   │   ├── game.config.ts      # Game configuration ✅
+│   │   ├── services.config.ts  # Service definitions ✅
+│   │   └── traffic.config.ts   # Traffic definitions ✅
+│   ├── scenes/           # Empty - planned
 │   ├── systems/
-│   │   ├── TrafficSystem.ts
-│   │   ├── ServiceSystem.ts
-│   │   ├── EconomySystem.ts
-│   │   ├── WaveSystem.ts
-│   │   ├── HealthSystem.ts
-│   │   └── EventSystem.ts
-│   ├── entities/
-│   │   ├── TrafficEntity.ts
-│   │   ├── ServiceEntity.ts
-│   │   └── ParticleEntity.ts
-│   ├── ui/
-│   │   ├── HUD.ts
-│   │   ├── BuildMenu.ts
-│   │   ├── StatsPanel.ts
-│   │   ├── Controls.ts
-│   │   └── VirtualControls.ts
-│   ├── managers/
-│   │   ├── InputManager.ts
-│   │   ├── CameraController.ts
-│   │   ├── SaveManager.ts
-│   │   ├── AudioManager.ts
-│   │   └── PWAInstaller.ts
+│   │   ├── TrafficSystem.ts    ✅
+│   │   ├── ServiceSystem.ts   ✅
+│   │   ├── EconomySystem.ts   ✅
+│   │   ├── WaveSystem.ts      ✅
+│   │   ├── HealthSystem.ts    ✅
+│   │   └── EventSystem.ts    ✅
+│   ├── entities/         # Empty - planned
+│   ├── ui/              # Empty - planned
+│   ├── managers/         # Empty - planned
 │   ├── utils/
-│   │   ├── GridSystem.ts
-│   │   ├── Pathfinding.ts
-│   │   └── Helpers.ts
+│   │   ├── EventBus.ts   ✅
+│   │   └── GridSystem.ts ✅
 │   └── types/
-│       ├── game.types.ts
-│       ├── traffic.types.ts
-│       └── service.types.ts
+│       ├── game.types.ts     ✅
+│       ├── traffic.types.ts  ✅
+│       └── service.types.ts ✅
 ├── tests/
-│   ├── unit/
-│   │   ├── TrafficSystem.test.ts
-│   │   ├── EconomySystem.test.ts
-│   │   └── WaveSystem.test.ts
-│   └── integration/
-│       └── GameFlow.test.ts
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── README.md
+│   ├── unit/            # Empty - planned
+│   └── integration/     # Empty - planned
+├── .eslintrc.json      # ESLint configuration ✅
+├── .gitignore          # Git ignore rules ✅
+├── .prettierrc         # Prettier configuration ✅
+├── index.html          # HTML entry point ✅
+├── package.json        # NPM configuration ✅
+├── tsconfig.json       # TypeScript configuration ✅
+├── vite.config.ts     # Vite configuration ✅
+└── README.md          # Project documentation ✅
 ```
 
 ## Key Technical Decisions
@@ -237,41 +216,47 @@ Entity creation uses factory pattern:
 
 ```
 main.ts
-  └─> GameScene
-      ├─> CameraController
-      ├─> InputManager
-      ├─> TrafficSystem
-      │   └─> TrafficEntity[]
-      ├─> ServiceSystem
-      │   └─> ServiceEntity[]
-      ├─> EconomySystem
-      ├─> WaveSystem
-      ├─> HealthSystem
-      └─> EventSystem
+  └─> GameScene (planned)
+      ├─> CameraController (planned)
+      ├─> InputManager (planned)
+      ├─> TrafficSystem ✅
+      │   └─> TrafficEntity[] (planned)
+      ├─> ServiceSystem ✅
+      │   └─> ServiceEntity[] (planned)
+      ├─> EconomySystem ✅
+      ├─> WaveSystem ✅
+      ├─> HealthSystem ✅
+      └─> EventSystem ✅
 ```
 
 ### Data Flow
 
 ```
-Input (Touch/Mouse/Keyboard)
-  └─> InputManager
-      └─> CameraController (camera movement)
-      └─> ServiceSystem (placement, selection)
-      └─> HUD (UI updates)
+Input (Touch/Mouse/Keyboard) - planned
+  └─> InputManager (planned)
+      └─> CameraController (camera movement) - planned
+      └─> ServiceSystem (placement, selection) ✅
+      └─> HUD (UI updates) - planned
 
-Game Loop (60 FPS)
-  ├─> TrafficSystem.update(deltaTime)
-  │   └─> TrafficEntity.update(deltaTime)
-  ├─> ServiceSystem.update(deltaTime)
-  │   └─> ServiceEntity.update(deltaTime)
-  ├─> EconomySystem.update(deltaTime)
-  ├─> WaveSystem.update(deltaTime)
-  ├─> HealthSystem.update(deltaTime)
-  └─> EventSystem.update(deltaTime)
+Game Loop (60 FPS) - planned
+  ├─> TrafficSystem.update(deltaTime) ✅
+  │   └─> TrafficEntity.update(deltaTime) (planned)
+  ├─> ServiceSystem.update(deltaTime) ✅
+  │   └─> ServiceEntity.update(deltaTime) (planned)
+  ├─> EconomySystem.update(deltaTime) ✅
+  ├─> WaveSystem.update(deltaTime) ✅
+  ├─> HealthSystem.update(deltaTime) ✅
+  └─> EventSystem.update(deltaTime) ✅
 
 State Changes
-  └─> State Management (Zustand/Pinia)
-      └─> UI Components (HUD, BuildMenu, StatsPanel)
+  └─> EventBus (✅) - Type-safe event system
+      ├─> traffic-processed → EconomySystem.addFunds()
+      ├─> traffic-leaked → EconomySystem.loseReputation()
+      ├─> service-placed → EconomySystem.stats.servicesBuilt++
+      ├─> service-failed → HealthSystem.unregisterService()
+      ├─> wave-started → TrafficSystem.setRps()
+      ├─> event-triggered → All systems handle event
+      └─> game-over → Transition to GameOverScene (planned)
 ```
 
 ## Critical Implementation Paths

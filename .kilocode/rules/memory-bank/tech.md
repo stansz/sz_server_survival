@@ -306,13 +306,133 @@ export default defineConfig({
   "@vitest/ui": "^1.0.0",
   "@playwright/test": "^1.40.0",
   "eslint": "^8.55.0",
-  "@typescript-eslint/parser": "^6.15.0",
   "@typescript-eslint/eslint-plugin": "^6.15.0",
+  "@typescript-eslint/parser": "^6.15.0",
   "prettier": "^3.1.0",
   "eslint-config-prettier": "^9.1.0",
-  "eslint-plugin-prettier": "^5.0.0"
+  "eslint-plugin-prettier": "^5.0.0",
+  "@types/node": "^20.10.0",
+  "@types/estree": "^1.0.8"
 }
 ```
+
+## Implemented Systems
+
+### EventBus (Type-Safe Event System)
+
+**Location**: [`src/utils/EventBus.ts`](src/utils/EventBus.ts)
+
+The EventBus provides decoupled communication between all game systems using a type-safe event emitter pattern.
+
+**Supported Events**:
+- `traffic-processed`: Emitted when traffic is successfully processed
+- `traffic-leaked`: Emitted when traffic reaches the destination (failure)
+- `service-selected`: Emitted when a service is selected
+- `service-placed`: Emitted when a new service is placed
+- `service-upgraded`: Emitted when a service is upgraded
+- `service-failed`: Emitted when a service fails (health reaches 0)
+- `wave-started`: Emitted when a new wave begins
+- `wave-completed`: Emitted when a wave completes
+- `game-over`: Emitted when game ends
+- `budget-changed`: Emitted when budget changes
+- `reputation-changed`: Emitted when reputation changes
+- `event-triggered`: Emitted when a random event occurs
+- `event-ended`: Emitted when a random event ends
+
+**Usage Pattern**:
+```typescript
+// Subscribe to events
+eventBus.on('traffic-processed', ({ type, reward }) => {
+  console.log(`Processed ${type}, earned $${reward}`);
+});
+
+// Emit events
+eventBus.emit('traffic-processed', {
+  type: TrafficType.STATIC,
+  reward: 5
+});
+```
+
+### GridSystem (Grid Management & Pathfinding)
+
+**Location**: [`src/utils/GridSystem.ts`](src/utils/GridSystem.ts)
+
+The GridSystem manages the game grid for service placement and traffic pathfinding.
+
+**Key Features**:
+- Grid-based world coordinate conversion
+- Service placement validation
+- A* pathfinding algorithm for traffic movement
+- Entity range detection
+- Cell occupation management
+
+**Configuration**:
+- Cell size: 2 units
+- Default grid: 10x10 cells (20x20 world units)
+- 4-directional movement (up, down, left, right)
+
+### Core Game Systems
+
+All systems follow a consistent pattern with:
+- Constructor taking dependencies (Scene, GridSystem, etc.)
+- `update(deltaTime: number)` method called each frame
+- Event subscriptions via EventBus
+- `dispose()` method for cleanup
+
+**TrafficSystem** ([`src/systems/TrafficSystem.ts`](src/systems/TrafficSystem.ts)):
+- Spawns traffic entities based on RPS (requests per second)
+- Manages traffic mix ratios (static, read, write, upload, search, malicious)
+- Moves traffic along A* paths
+- Handles traffic leaks (reaching destination)
+- Responds to wave and random events
+
+**ServiceSystem** ([`src/systems/ServiceSystem.ts`](src/systems/ServiceSystem.ts)):
+- Places services on the grid
+- Manages service upgrades (3 levels per service type)
+- Attacks traffic in range
+- Creates range indicator meshes
+- Handles service selection
+
+**EconomySystem** ([`src/systems/EconomySystem.ts`](src/systems/EconomySystem.ts)):
+- Manages budget and reputation
+- Processes rewards from traffic
+- Handles game over conditions
+- Tracks game statistics
+- Processes upkeep costs
+
+**WaveSystem** ([`src/systems/WaveSystem.ts`](src/systems/WaveSystem.ts)):
+- Manages wave progression
+- Calculates RPS acceleration (×1.3 at 1min → ×4.0 at 10min)
+- Triggers random events
+- Tracks game time
+
+**HealthSystem** ([`src/systems/HealthSystem.ts`](src/systems/HealthSystem.ts)):
+- Manages service health
+- Applies degradation over time
+- Handles service repairs
+- Triggers service failures
+
+**EventSystem** ([`src/systems/EventSystem.ts`](src/systems/EventSystem.ts)):
+- Manages random event timing
+- Triggers events (traffic surge, DDoS, degradation, budget bonus)
+- Manages event durations
+
+### Configuration Files
+
+**Game Config** ([`src/config/game.config.ts`](src/config/game.config.ts)):
+- Game mode configurations (Survival, Sandbox)
+- Wave progression formulas
+- Random event definitions
+
+**Services Config** ([`src/config/services.config.ts`](src/config/services.config.ts)):
+- 6 service types: Firewall, CDN, Load Balancer, Cache, Database, Auto Scaler
+- 3 upgrade levels per service
+- Cost, range, damage, attack speed, health, upkeep values
+
+**Traffic Config** ([`src/config/traffic.config.ts`](src/config/traffic.config.ts)):
+- 6 traffic types: Static, Read, Write, Upload, Search, Malicious
+- Health, speed, reward, damage values
+- Default traffic mix ratios
 
 ## Tool Usage Patterns
 
