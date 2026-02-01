@@ -1,1 +1,1 @@
-Create a modern web optimized tower defense game based on game called "Server Survival", found here: https://github.com/stansz/server-survival.  This gamne needs to perform well on both mobile and desktop Web browsers with PWA support 
+Create a modern web optimized tower defense game based on game called "Server Survival", found here: https://github.com/stansz/server-survival.  This game needs to perform well on both mobile and desktop Web browsers with PWA support 
