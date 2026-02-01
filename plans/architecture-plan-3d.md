@@ -219,6 +219,308 @@ graph LR
 
 ---
 
+## Core Infrastructure
+
+### EventBus System
+
+Babylon.js Scene does not have a built-in event emitter. A dedicated EventBus singleton provides type-safe communication between systems:
+
+```typescript
+// src/utils/EventBus.ts
+export type GameEventMap = {
+  'traffic-processed': { type: TrafficType; reward: number };
+  'traffic-leaked': { type: TrafficType; damage: number };
+  'service-selected': { serviceId: string; serviceType: ServiceType };
+  'service-placed': { position: BABYLON.Vector3; type: ServiceType };
+  'service-upgraded': { serviceId: string; newLevel: number };
+  'service-failed': { serviceId: string };
+  'wave-started': { waveNumber: number; rps: number };
+  'wave-completed': { waveNumber: number };
+  'game-over': { reason: string; score: number };
+  'budget-changed': { newBudget: number; delta: number };
+  'reputation-changed': { newReputation: number; delta: number };
+  'event-triggered': { eventId: string; duration: number };
+  'event-ended': { eventId: string };
+};
+
+export type GameEvent = keyof GameEventMap;
+
+export class EventBus {
+  private static instance: EventBus;
+  private listeners: Map<GameEvent, Set<((data: any) => void)>> = new Map();
+
+  static getInstance(): EventBus {
+    if (!EventBus.instance) {
+      EventBus.instance = new EventBus();
+    }
+    return EventBus.instance;
+  }
+
+  emit<K extends GameEvent>(event: K, data: GameEventMap[K]): void {
+    const eventListeners = this.listeners.get(event);
+    if (eventListeners) {
+      eventListeners.forEach((callback) => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error(`Error in event listener for ${event}:`, error);
+        }
+      });
+    }
+  }
+
+  on<K extends GameEvent>(event: K, callback: (data: GameEventMap[K]) => void): () => void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    this.listeners.get(event)!.add(callback as (data: any) => void);
+
+    // Return unsubscribe function
+    return () => {
+      this.listeners.get(event)?.delete(callback as (data: any) => void);
+    };
+  }
+
+  off<K extends GameEvent>(event: K, callback: (data: GameEventMap[K]) => void): void {
+    this.listeners.get(event)?.delete(callback as (data: any) => void);
+  }
+
+  clear(): void {
+    this.listeners.clear();
+  }
+}
+
+// Global singleton instance
+export const eventBus = EventBus.getInstance();
+```
+
+**Usage Example:**
+```typescript
+// In TrafficSystem
+entity.process() {
+  eventBus.emit('traffic-processed', { 
+    type: this.config.type, 
+    reward: this.config.reward 
+  });
+  this.dispose();
+}
+
+// In EconomySystem
+constructor() {
+  eventBus.on('traffic-processed', ({ type, reward }) => {
+    this.addFunds(reward);
+    this.requestsProcessed++;
+  });
+}
+```
+
+---
+
+### Grid System
+
+The grid system is essential for tower defense gameplay, handling placement validation, pathfinding, and spatial queries:
+
+```typescript
+// src/utils/GridSystem.ts
+export interface GridPosition {
+  x: number;
+  z: number;
+}
+
+export interface GridCell {
+  position: GridPosition;
+  worldPosition: BABYLON.Vector3;
+  isWalkable: boolean;
+  isOccupied: boolean;
+  entityId?: string;
+  cost: number;
+}
+
+export class GridSystem {
+  private grid: Map<string, GridCell> = new Map();
+  private cellSize: number = 2;
+  private width: number;
+  private depth: number;
+  private offset: BABYLON.Vector3;
+
+  constructor(width: number, depth: number, cellSize: number = 2) {
+    this.width = width;
+    this.depth = depth;
+    this.cellSize = cellSize;
+    this.offset = new BABYLON.Vector3(-width / 2, 0, -depth / 2);
+    this.initializeGrid();
+  }
+
+  private initializeGrid(): void {
+    for (let x = 0; x < this.width; x++) {
+      for (let z = 0; z < this.depth; z++) {
+        const key = this.getKey(x, z);
+        this.grid.set(key, {
+          position: { x, z },
+          worldPosition: this.gridToWorld({ x, z }),
+          isWalkable: true,
+          isOccupied: false,
+          cost: 1,
+        });
+      }
+    }
+  }
+
+  private getKey(x: number, z: number): string {
+    return `${x},${z}`;
+  }
+
+  worldToGrid(worldPos: BABYLON.Vector3): GridPosition {
+    const adjustedX = worldPos.x - this.offset.x;
+    const adjustedZ = worldPos.z - this.offset.z;
+    return {
+      x: Math.floor(adjustedX / this.cellSize),
+      z: Math.floor(adjustedZ / this.cellSize),
+    };
+  }
+
+  gridToWorld(gridPos: GridPosition): BABYLON.Vector3 {
+    return new BABYLON.Vector3(
+      gridPos.x * this.cellSize + this.offset.x + this.cellSize / 2,
+      0,
+      gridPos.z * this.cellSize + this.offset.z + this.cellSize / 2
+    );
+  }
+
+  isValidPlacement(gridPos: GridPosition): boolean {
+    const cell = this.grid.get(this.getKey(gridPos.x, gridPos.z));
+    return cell !== undefined && !cell.isOccupied && cell.isWalkable;
+  }
+
+  occupyCell(gridPos: GridPosition, entityId: string): boolean {
+    const key = this.getKey(gridPos.x, gridPos.z);
+    const cell = this.grid.get(key);
+    if (cell && !cell.isOccupied) {
+      cell.isOccupied = true;
+      cell.isWalkable = false;
+      cell.entityId = entityId;
+      return true;
+    }
+    return false;
+  }
+
+  freeCell(gridPos: GridPosition): void {
+    const key = this.getKey(gridPos.x, gridPos.z);
+    const cell = this.grid.get(key);
+    if (cell) {
+      cell.isOccupied = false;
+      cell.isWalkable = true;
+      cell.entityId = undefined;
+    }
+  }
+
+  getCell(gridPos: GridPosition): GridCell | undefined {
+    return this.grid.get(this.getKey(gridPos.x, gridPos.z));
+  }
+
+  getEntitiesInRange(center: BABYLON.Vector3, radius: number): string[] {
+    const centerGrid = this.worldToGrid(center);
+    const radiusInCells = Math.ceil(radius / this.cellSize);
+    const entities: string[] = [];
+
+    for (let x = -radiusInCells; x <= radiusInCells; x++) {
+      for (let z = -radiusInCells; z <= radiusInCells; z++) {
+        const checkPos = { x: centerGrid.x + x, z: centerGrid.z + z };
+        const cell = this.getCell(checkPos);
+        if (cell && cell.entityId) {
+          const distance = BABYLON.Vector3.Distance(
+            center,
+            cell.worldPosition
+          );
+          if (distance <= radius) {
+            entities.push(cell.entityId);
+          }
+        }
+      }
+    }
+
+    return entities;
+  }
+
+  snapToGrid(worldPos: BABYLON.Vector3): BABYLON.Vector3 {
+    const gridPos = this.worldToGrid(worldPos);
+    return this.gridToWorld(gridPos);
+  }
+
+  // FIX: Added pathfinding implementation using A* algorithm
+  findPath(start: GridPosition, end: GridPosition): BABYLON.Vector3[] {
+    const openSet: GridPosition[] = [start];
+    const cameFrom: Map<string, GridPosition> = new Map();
+    const gScore: Map<string, number> = new Map();
+    const fScore: Map<string, number> = new Map();
+
+    const key = (pos: GridPosition) => `${pos.x},${pos.z}`;
+
+    gScore.set(key(start), 0);
+    fScore.set(key(start), this.heuristic(start, end));
+
+    while (openSet.length > 0) {
+      // Get node with lowest fScore
+      openSet.sort((a, b) => (fScore.get(key(a)) || Infinity) - (fScore.get(key(b)) || Infinity));
+      const current = openSet.shift()!;
+
+      if (current.x === end.x && current.z === end.z) {
+        return this.reconstructPath(cameFrom, current);
+      }
+
+      // Check neighbors (4-directional: up, down, left, right)
+      const neighbors: GridPosition[] = [
+        { x: current.x + 1, z: current.z },
+        { x: current.x - 1, z: current.z },
+        { x: current.x, z: current.z + 1 },
+        { x: current.x, z: current.z - 1 }
+      ];
+
+      for (const neighbor of neighbors) {
+        const neighborKey = key(neighbor);
+        const cell = this.grid.get(neighborKey);
+
+        if (!cell || !cell.isWalkable) continue;
+
+        const tentativeGScore = (gScore.get(key(current)) || Infinity) + 1;
+
+        if (tentativeGScore < (gScore.get(neighborKey) || Infinity)) {
+          cameFrom.set(neighborKey, current);
+          gScore.set(neighborKey, tentativeGScore);
+          fScore.set(neighborKey, tentativeGScore + this.heuristic(neighbor, end));
+
+          if (!openSet.some(n => n.x === neighbor.x && n.z === neighbor.z)) {
+            openSet.push(neighbor);
+          }
+        }
+      }
+    }
+
+    // No path found - return direct line
+    return [this.gridToWorld(start), this.gridToWorld(end)];
+  }
+
+  private heuristic(a: GridPosition, b: GridPosition): number {
+    // Manhattan distance for grid movement
+    return Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
+  }
+
+  private reconstructPath(cameFrom: Map<string, GridPosition>, current: GridPosition): BABYLON.Vector3[] {
+    const key = (pos: GridPosition) => `${pos.x},${pos.z}`;
+    const path: GridPosition[] = [current];
+
+    while (cameFrom.has(key(current))) {
+      current = cameFrom.get(key(current))!;
+      path.unshift(current);
+    }
+
+    return path.map(pos => this.gridToWorld(pos));
+  }
+}
+```
+
+---
+
 ## Responsive Design Strategy
 
 ### Breakpoint Strategy
@@ -365,6 +667,33 @@ class CameraController {
 
 ## Core Game Mechanics
 
+> **NOTE**: The architecture uses a hybrid approach combining Zustand for global state (economy, game progress) and EventBus for decoupled game events. This provides both reactive state management and loose coupling between systems.
+
+### State Management Pattern
+
+```typescript
+// Global game state using Zustand
+interface GameState {
+  budget: number;
+  reputation: number;
+  wave: number;
+  isPaused: boolean;
+  gameMode: 'survival' | 'sandbox';
+  actions: {
+    addFunds: (amount: number) => void;
+    deductFunds: (amount: number) => void;
+    startWave: (wave: number) => void;
+    pause: () => void;
+    resume: () => void;
+  }
+}
+
+// Game events using EventBus (decoupled from state)
+eventBus.on('traffic-processed', handleTrafficProcessed);
+eventBus.on('service-placed', handleServicePlaced);
+eventBus.on('wave-started', handleWaveStarted);
+```
+
 ### 1. Traffic System (Enemies)
 
 **Traffic Types:**
@@ -381,7 +710,7 @@ enum TrafficType {
 
 interface TrafficConfig {
   type: TrafficType;
-  color: number;
+  color: string;  // Hex color string (e.g., '#00FF00')
   speed: number;
   health: number;
   reward: number;
@@ -415,7 +744,7 @@ interface ServiceConfig {
   range: number;
   damage: number;
   attackSpeed: number;
-  color: number;
+  color: string;  // Hex color string (e.g., '#3498db')
   icon: string;
   upgradeLevels: number;
 }
@@ -536,7 +865,8 @@ class HealthSystem {
     const service = this.serviceManager.getService(id);
     
     if (health && service) {
-      const repairCost = service.config.cost * 0.15;
+      // FIX: Use config value instead of magic number 0.15
+      const repairCost = service.config.cost * GAME_CONFIG.REPAIR_COST_MULTIPLIER;
       
       if (this.economy.canAfford(repairCost)) {
         this.economy.deductFunds(repairCost);
@@ -620,66 +950,55 @@ class EventManager {
 
 ```typescript
 // public/sw.js
-const CACHE_NAME = 'server-survival-v1';
-const STATIC_CACHE = 'static-v1';
-const DYNAMIC_CACHE = 'dynamic-v1';
+// FIX: Using Workbox for automatic cache busting with Vite's build hashes
 
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/assets/models/',
-  '/assets/textures/',
-  '/assets/audio/',
-  '/bundle.js',
-  '/bundle.css'
-];
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+import { registerRoute, StaleWhileRevalidate } from 'workbox-routing';
+import { CacheFirst } from 'workbox-strategies';
+import { ExpirationPlugin } from 'workbox-expiration';
+
+// Automatically precache assets from Vite's manifest
+precacheAndRoute(self.__WB_MANIFEST);
+
+// Clean up old caches on activation
+cleanupOutdatedCaches();
+
+// Cache runtime requests for assets
+registerRoute(
+  ({ request }) => request.destination === 'image' ||
+                    request.destination === 'font' ||
+                    request.destination === 'audio',
+  new CacheFirst({
+    cacheName: 'assets-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 100,
+        maxAgeSeconds: 30 * 24 * 60 * 60 // 30 days
+      })
+    ]
+  })
+);
+
+// Stale-while-revalidate for API calls (if any)
+registerRoute(
+  ({ url }) => url.pathname.startsWith('/api/'),
+  new StaleWhileRevalidate({
+    cacheName: 'api-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 50,
+        maxAgeSeconds: 60 * 60 // 1 hour
+      })
+    ]
+  })
+);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== STATIC_CACHE && name !== DYNAMIC_CACHE)
-          .map((name) => caches.delete(name))
-      );
-    })
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      return fetch(event.request).then((response) => {
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(DYNAMIC_CACHE).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return response;
-      }).catch(() => {
-        if (event.request.destination === 'image') {
-          return caches.match('/assets/fallback.png');
-        }
-        return new Response('Offline', { status: 503 });
-      });
-    })
-  );
+  event.waitUntil(self.clients.claim());
 });
 ```
 
@@ -778,6 +1097,50 @@ self.addEventListener('fetch', (event) => {
     }
   ]
 }
+```
+
+### Game Configuration Constants
+
+```typescript
+// src/config/game.config.ts
+
+// FIX: Centralized configuration to avoid magic numbers throughout codebase
+export const GAME_CONFIG = {
+  // Economy
+  INITIAL_BUDGET: 1000,
+  INITIAL_REPUTATION: 100,
+  GAME_OVER_BANKRUPTCY_THRESHOLD: -1000,
+  REPAIR_COST_MULTIPLIER: 0.15,
+  UPGRADE_COST_MULTIPLIER: 0.75,
+
+  // Upgrade Multipliers
+  UPGRADE_DAMAGE_MULTIPLIER: 1.2,
+  UPGRADE_RANGE_MULTIPLIER: 1.1,
+  UPGRADE_CAPACITY_MULTIPLIER: 1.3,
+  UPGRADE_ATTACK_SPEED_MULTIPLIER: 0.9,
+
+  // Wave Settings
+  WAVE_DURATION_MS: 60000,
+  TRAFFIC_INTERVAL_BASE: 1000,
+  RPS_ACCELERATION_MIN: 1.3,
+  RPS_ACCELERATION_MAX: 4.0,
+
+  // Service Health
+  MAX_SERVICE_HEALTH: 100,
+  BASE_DEGRADATION_RATE: 0.1,
+
+  // Object Pooling
+  TRAFFIC_POOL_MAX_SIZE: 100,
+  SERVICE_POOL_MAX_SIZE: 50,
+
+  // Grid Settings
+  GRID_CELL_SIZE: 2,
+
+  // Camera Settings
+  CAMERA_MIN_RADIUS: 10,
+  CAMERA_MAX_RADIUS: 80,
+  CAMERA_DEFAULT_RADIUS: 30,
+} as const;
 ```
 
 ---
@@ -966,19 +1329,38 @@ class SceneManager {
   }
 
   async switchScene(sceneName: string, data?: any): Promise<void> {
-    if (this.currentScene) {
-      this.currentScene.dispose();
-    }
-
     const sceneFactory = this.scenes.get(sceneName);
     if (!sceneFactory) {
       throw new Error(`Scene ${sceneName} not found`);
     }
 
-    this.currentScene = sceneFactory();
-    
-    if (data && this.currentScene['initialize']) {
-      await this.currentScene['initialize'](data);
+    // Create new scene first
+    const newScene = sceneFactory();
+
+    // Initialize new scene with data if provided
+    if (data && newScene['initialize']) {
+      await newScene['initialize'](data);
+    }
+
+    // FIX: Proper scene cleanup order to prevent memory leaks
+    const oldScene = this.currentScene;
+    this.currentScene = newScene;
+
+    if (oldScene) {
+      // 1. Stop render loop for old scene
+      this.engine.stopRenderLoop();
+
+      // 2. Dispose event listeners
+      oldScene.onPointerObservable.clear();
+      oldScene.onKeyboardObservable.clear();
+
+      // 3. Clear object pools
+      if (oldScene.metadata?.trafficPool) {
+        oldScene.metadata.trafficPool.clear();
+      }
+
+      // 4. Dispose scene (this disposes all meshes, materials, etc.)
+      oldScene.dispose();
     }
   }
 
@@ -996,6 +1378,7 @@ new Game();
 // src/entities/TrafficEntity.ts
 import * as BABYLON from '@babylonjs/core';
 import { TrafficType, TrafficConfig } from '../types/traffic.types';
+import { eventBus } from '../utils/EventBus';
 
 export default class TrafficEntity {
   private mesh: BABYLON.Mesh;
@@ -1059,8 +1442,8 @@ export default class TrafficEntity {
     mesh.position = position.clone();
     
     const material = new BABYLON.StandardMaterial(`traffic-material-${config.type}`, scene);
-    material.diffuseColor = BABYLON.Color3.FromHexString(config.color.toString(16).padStart(6, '0'));
-    material.emissiveColor = BABYLON.Color3.FromHexString(config.color.toString(16).padStart(6, '0')).scale(0.3);
+    material.diffuseColor = BABYLON.Color3.FromHexString(config.color);
+    material.emissiveColor = BABYLON.Color3.FromHexString(config.color).scale(0.3);
     mesh.material = material;
 
     if (config.type === TrafficType.MALICIOUS) {
@@ -1133,7 +1516,7 @@ export default class TrafficEntity {
 
   private reachDestination() {
     if (!this.isProcessed) {
-      this.mesh.scene.events.emit('traffic-leaked', this.config.type);
+      eventBus.emit('traffic-leaked', { type: this.config.type, damage: this.config.damage });
     }
     this.dispose();
   }
@@ -1164,7 +1547,9 @@ export default class TrafficEntity {
 
   private createDeathEffect() {
     const particleSystem = new BABYLON.ParticleSystem('death-particles', 50, this.mesh.scene);
-    particleSystem.particleTexture = new BABYLON.Texture('assets/textures/particle.png', this.mesh.scene);
+    // FIX: Use AssetManager to ensure texture is preloaded
+    const particleTexture = this.mesh.scene.getTextureByName('particle_texture');
+    particleSystem.particleTexture = particleTexture || new BABYLON.Texture('assets/textures/particle.png', this.mesh.scene);
     particleSystem.emitter = this.mesh.position;
     particleSystem.minEmitBox = new BABYLON.Vector3(-0.5, -0.5, -0.5);
     particleSystem.maxEmitBox = new BABYLON.Vector3(0.5, 0.5, 0.5);
@@ -1187,8 +1572,25 @@ export default class TrafficEntity {
 
   process() {
     this.isProcessed = true;
-    this.mesh.scene.events.emit('traffic-processed', this.config.type);
+    eventBus.emit('traffic-processed', { type: this.config.type, reward: this.config.reward });
     this.dispose();
+  }
+
+  // Reset method for object pooling
+  reset(position: BABYLON.Vector3, config: TrafficConfig, path: BABYLON.Vector3[]): void {
+    this.config = config;
+    this.path = path;
+    this.speed = config.speed;
+    this.health = config.health;
+    this.maxHealth = config.health;
+    this.currentPathIndex = 0;
+    this.isProcessed = false;
+    
+    this.mesh.position = position.clone();
+    this.mesh.setEnabled(true);
+    
+    // Reset health bar
+    this.updateHealthBar();
   }
 
   private updateHealthBar() {
@@ -1210,8 +1612,13 @@ export default class TrafficEntity {
   }
 
   private generateId(): string {
-    return `traffic-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // FIX: Use incremental counter instead of Date.now() to prevent duplicates
+    // In production, use a proper UUID library like 'uuid'
+    return `traffic-${Date.now()}-${TrafficEntity.idCounter++}`;
   }
+
+  // Add static counter for unique ID generation
+  private static idCounter = 0;
 
   dispose() {
     if (this.healthBarMesh) {
@@ -1230,6 +1637,7 @@ export default class TrafficEntity {
 // src/entities/ServiceEntity.ts
 import * as BABYLON from '@babylonjs/core';
 import { ServiceType, ServiceConfig } from '../types/service.types';
+import { eventBus } from '../utils/EventBus';
 
 export default class ServiceEntity {
   public readonly id: string;
@@ -1305,12 +1713,14 @@ export default class ServiceEntity {
     mesh.position.y = 1;
     
     const material = new BABYLON.StandardMaterial(`service-material-${config.type}`, scene);
-    material.diffuseColor = BABYLON.Color3.FromHexString(config.color.toString(16).padStart(6, '0'));
+    material.diffuseColor = BABYLON.Color3.FromHexString(config.color);
     material.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
     mesh.material = material;
 
-    this.glowLayer = new BABYLON.GlowLayer('service-glow', scene);
-    this.glowLayer.intensity = 0.3;
+    // CRITICAL FIX: Do NOT create per-entity GlowLayer - use scene-level GlowLayer instead
+    // This was a major performance/memory leak in the original plan
+    // Instead, let the scene manage a single GlowLayer for all services
+    // Example: scene.getGlowLayerByName('services-glow') || new BABYLON.GlowLayer('services-glow', scene);
 
     return mesh;
   }
@@ -1322,7 +1732,7 @@ export default class ServiceEntity {
     }, scene);
     
     const material = new BABYLON.StandardMaterial('range-indicator-material', scene);
-    material.diffuseColor = BABYLON.Color3.FromHexString(this.config.color.toString(16).padStart(6, '0'));
+    material.diffuseColor = BABYLON.Color3.FromHexString(this.config.color);
     material.alpha = 0.3;
     material.disableLighting = true;
     rangeIndicator.material = material;
@@ -1382,7 +1792,7 @@ export default class ServiceEntity {
   }
 
   private handleClick() {
-    this.mesh.scene.events.emit('service-selected', this);
+    eventBus.emit('service-selected', { serviceId: this.id, serviceType: this.config.type });
     this.showRange();
   }
 
@@ -1409,10 +1819,11 @@ export default class ServiceEntity {
     
     this.level++;
     
-    this.config.damage *= 1.2;
-    this.config.range *= 1.1;
-    this.config.capacity *= 1.3;
-    this.config.attackSpeed *= 0.9;
+    // FIX: Use config values instead of magic numbers
+    this.config.damage *= GAME_CONFIG.UPGRADE_DAMAGE_MULTIPLIER;
+    this.config.range *= GAME_CONFIG.UPGRADE_RANGE_MULTIPLIER;
+    this.config.capacity *= GAME_CONFIG.UPGRADE_CAPACITY_MULTIPLIER;
+    this.config.attackSpeed *= GAME_CONFIG.UPGRADE_ATTACK_SPEED_MULTIPLIER;
     
     this.rangeIndicator.dispose();
     this.rangeIndicator = this.createRangeIndicator(this.mesh.scene);
@@ -1451,7 +1862,8 @@ export default class ServiceEntity {
   }
 
   getUpgradeCost(): number {
-    return Math.floor(this.config.cost * 0.75 * this.level);
+    // FIX: Use config value instead of magic number 0.75
+    return Math.floor(this.config.cost * GAME_CONFIG.UPGRADE_COST_MULTIPLIER * this.level);
   }
 
   getCurrentLoad(): number {
@@ -1480,7 +1892,7 @@ export default class ServiceEntity {
       (this.mesh.material as BABYLON.StandardMaterial).diffuseColor = new BABYLON.Color3(0.4, 0.4, 0.4);
       this.mesh.alpha = 0.5;
     } else {
-      (this.mesh.material as BABYLON.StandardMaterial).diffuseColor = BABYLON.Color3.FromHexString(this.config.color.toString(16).padStart(6, '0'));
+      (this.mesh.material as BABYLON.StandardMaterial).diffuseColor = BABYLON.Color3.FromHexString(this.config.color);
       this.mesh.alpha = 1;
     }
   }
@@ -1504,16 +1916,17 @@ export default class ServiceEntity {
   }
 
   dispose() {
+    // CRITICAL FIX: Proper cleanup order to prevent memory leaks
+    // 1. Dispose child meshes first
     if (this.rangeIndicator) {
       this.rangeIndicator.dispose();
     }
     if (this.healthBarMesh) {
       this.healthBarMesh.dispose();
     }
-    if (this.glowLayer) {
-      this.glowLayer.dispose();
-    }
+    // 2. Remove from parent mesh
     if (this.mesh) {
+      // DO NOT dispose scene-level GlowLayer here - it's shared across entities
       this.mesh.dispose();
     }
   }
@@ -1562,14 +1975,14 @@ class TrafficPool {
   private pool: TrafficEntity[] = [];
   private maxSize: number = 100;
   
-  get(scene: BABYLON.Scene, position: BABYLON.Vector3, config: TrafficConfig): TrafficEntity {
+  get(scene: BABYLON.Scene, position: BABYLON.Vector3, config: TrafficConfig, path: BABYLON.Vector3[]): TrafficEntity {
     if (this.pool.length > 0) {
       const entity = this.pool.pop()!;
-      entity.mesh.position = position.clone();
-      entity.mesh.setEnabled(true);
+      // Properly reset entity state before reuse
+      entity.reset(position, config, path);
       return entity;
     }
-    return new TrafficEntity(scene, position, config, []);
+    return new TrafficEntity(scene, position, config, path);
   }
   
   release(entity: TrafficEntity) {
@@ -1579,6 +1992,15 @@ class TrafficPool {
     } else {
       entity.dispose();
     }
+  }
+  
+  clear(): void {
+    this.pool.forEach((entity) => entity.dispose());
+    this.pool = [];
+  }
+  
+  get size(): number {
+    return this.pool.length;
   }
 }
 ```
@@ -1656,6 +2078,594 @@ describe('Game Flow Integration', () => {
   });
 });
 ```
+
+---
+
+## Architecture Review Findings & Improvements
+
+### Review Summary
+
+This architecture plan has been reviewed for potential issues and optimization opportunities. The following improvements are recommended before implementation begins.
+
+### 1. Enhanced Performance Optimizations
+
+#### Mobile-Specific Performance Monitoring
+
+```typescript
+// src/managers/PerformanceMonitor.ts
+export class PerformanceMonitor {
+  private frameTimeHistory: number[] = [];
+  private maxHistorySize: number = 60;
+  private targetFPS: number = 60;
+  private performanceWarningShown: boolean = false;
+
+  constructor(private scene: BABYLON.Scene) {
+    this.setupMonitoring();
+  }
+
+  private setupMonitoring(): void {
+    this.scene.onBeforeRenderObservable.add(() => {
+      const deltaTime = this.scene.getEngine().getDeltaTime();
+      this.frameTimeHistory.push(deltaTime);
+      
+      if (this.frameTimeHistory.length > this.maxHistorySize) {
+        this.frameTimeHistory.shift();
+      }
+
+      this.checkPerformance();
+    });
+  }
+
+  private checkPerformance(): void {
+    const avgFrameTime = this.frameTimeHistory.reduce((a, b) => a + b, 0) / this.frameTimeHistory.length;
+    const currentFPS = 1000 / avgFrameTime;
+
+    if (currentFPS < 30 && !this.performanceWarningShown) {
+      console.warn(`Low performance detected: ${currentFPS.toFixed(1)} FPS`);
+      this.performanceWarningShown = true;
+      this.triggerPerformanceOptimizations();
+    }
+  }
+
+  private triggerPerformanceOptimizations(): void {
+    // Reduce particle effects
+    this.scene.particleSystems.forEach(ps => {
+      ps.emitRate = Math.floor(ps.emitRate * 0.5);
+    });
+
+    // Reduce shadow quality
+    this.scene.meshes.forEach(mesh => {
+      if (mesh.receiveShadows) {
+        mesh.receiveShadows = false;
+      }
+    });
+
+    // Enable frustum culling more aggressively
+    this.scene.autoClear = false;
+    this.scene.autoClearDepthAndStencil = true;
+  }
+
+  getCurrentFPS(): number {
+    if (this.frameTimeHistory.length === 0) return 60;
+    const avgFrameTime = this.frameTimeHistory.reduce((a, b) => a + b, 0) / this.frameTimeHistory.length;
+    return 1000 / avgFrameTime;
+  }
+}
+```
+
+#### Advanced Mesh Optimization
+
+```typescript
+// src/managers/MeshOptimizer.ts
+export class MeshOptimizer {
+  static optimizeScene(scene: BABYLON.Scene): void {
+    scene.meshes.forEach(mesh => {
+      if (!mesh.isDisposed()) {
+        // Freeze world matrix for static objects
+        if (!mesh.parent) {
+          mesh.freezeWorldMatrix();
+        }
+
+        // Optimize mesh data
+        mesh.optimize();
+
+        // Freeze normals for better performance
+        mesh.freezeNormals();
+
+        // Enable side orientation optimization
+        mesh.sideOrientation = BABYLON.Mesh.DOUBLESIDE;
+
+        // Disable collision checking for non-interactive objects
+        if (!mesh.metadata?.interactive) {
+          mesh.checkCollisions = false;
+        }
+      }
+    });
+
+    // Enable frustum culling
+    scene.freezeActiveMeshes();
+  }
+
+  static createOptimizedInstance(
+    baseMesh: BABYLON.Mesh,
+    position: BABYLON.Vector3,
+    count: number
+  ): BABYLON.InstancedMesh {
+    const instances = baseMesh.createInstance(`instance-${Date.now()}`);
+    instances.position = position;
+    return instances;
+  }
+}
+```
+
+### 2. Enhanced EventBus with Error Handling
+
+```typescript
+// src/utils/EventBus.ts (Enhanced version)
+export class EventBus {
+  private static instance: EventBus;
+  private listeners: Map<GameEvent, Set<((data: any) => void)>> = new Map();
+  private eventHistory: Map<GameEvent, number[]> = new Map();
+  private maxHistorySize: number = 100;
+  private debugMode: boolean = false;
+
+  static getInstance(): EventBus {
+    if (!EventBus.instance) {
+      EventBus.instance = new EventBus();
+    }
+    return EventBus.instance;
+  }
+
+  emit<K extends GameEvent>(event: K, data: GameEventMap[K]): void {
+    // Track event history for debugging
+    if (!this.eventHistory.has(event)) {
+      this.eventHistory.set(event, []);
+    }
+    const history = this.eventHistory.get(event)!;
+    history.push(Date.now());
+    if (history.length > this.maxHistorySize) {
+      history.shift();
+    }
+
+    const eventListeners = this.listeners.get(event);
+    if (eventListeners) {
+      const errors: Error[] = [];
+      
+      eventListeners.forEach((callback) => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error(`Error in event listener for ${event}:`, error);
+          errors.push(error as Error);
+          
+          // Prevent infinite loops by removing failing listeners
+          if (errors.length > 5) {
+            console.error(`Too many errors in ${event} listeners, removing listener`);
+            this.off(event, callback);
+          }
+        }
+      });
+
+      if (this.debugMode) {
+        console.log(`[EventBus] Emitted ${event}:`, data, `Listeners: ${eventListeners.size}`);
+      }
+    }
+  }
+
+  on<K extends GameEvent>(
+    event: K, 
+    callback: (data: GameEventMap[K]) => void,
+    options?: { once?: boolean; priority?: number }
+  ): () => void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+
+    const listeners = this.listeners.get(event)!;
+    listeners.add(callback as (data: any) => void);
+
+    if (this.debugMode) {
+      console.log(`[EventBus] Registered listener for ${event}`);
+    }
+
+    // Return unsubscribe function
+    return () => {
+      this.off(event, callback as (data: any) => void);
+    };
+  }
+
+  off<K extends GameEvent>(event: K, callback: (data: GameEventMap[K]) => void): void {
+    const listeners = this.listeners.get(event);
+    if (listeners) {
+      listeners.delete(callback as (data: any) => void);
+      if (this.debugMode) {
+        console.log(`[EventBus] Removed listener for ${event}`);
+      }
+    }
+  }
+
+  clear(): void {
+    this.listeners.clear();
+    this.eventHistory.clear();
+  }
+
+  enableDebugMode(enabled: boolean): void {
+    this.debugMode = enabled;
+  }
+
+  getEventStats(): Map<GameEvent, number> {
+    const stats = new Map<GameEvent, number>();
+    this.eventHistory.forEach((history, event) => {
+      stats.set(event, history.length);
+    });
+    return stats;
+  }
+}
+
+// Global singleton instance
+export const eventBus = EventBus.getInstance();
+```
+
+### 3. Complete Magic Number Elimination
+
+```typescript
+// src/config/game.config.ts (Enhanced)
+export const GAME_CONFIG = {
+  // Economy
+  INITIAL_BUDGET: 1000,
+  INITIAL_REPUTATION: 100,
+  GAME_OVER_BANKRUPTCY_THRESHOLD: -1000,
+  REPAIR_COST_MULTIPLIER: 0.15,
+  UPGRADE_COST_MULTIPLIER: 0.75,
+  
+  // Upgrade Multipliers
+  UPGRADE_DAMAGE_MULTIPLIER: 1.2,
+  UPGRADE_RANGE_MULTIPLIER: 1.1,
+  UPGRADE_CAPACITY_MULTIPLIER: 1.3,
+  UPGRADE_ATTACK_SPEED_MULTIPLIER: 0.9,
+  
+  // Wave Settings
+  WAVE_DURATION_MS: 60000,
+  TRAFFIC_INTERVAL_BASE: 1000,
+  RPS_ACCELERATION_MIN: 1.3,
+  RPS_ACCELERATION_MAX: 4.0,
+  
+  // Service Health
+  MAX_SERVICE_HEALTH: 100,
+  BASE_DEGRADATION_RATE: 0.1,
+  
+  // Object Pooling
+  TRAFFIC_POOL_MAX_SIZE: 100,
+  SERVICE_POOL_MAX_SIZE: 50,
+  PARTICLE_POOL_MAX_SIZE: 200,
+  
+  // Grid Settings
+  GRID_CELL_SIZE: 2,
+  GRID_WIDTH: 50,
+  GRID_DEPTH: 50,
+  
+  // Camera Settings
+  CAMERA_MIN_RADIUS: 10,
+  CAMERA_MAX_RADIUS: 80,
+  CAMERA_DEFAULT_RADIUS: 30,
+  CAMERA_BETA_PORTRAIT: Math.PI / 4,
+  CAMERA_BETA_LANDSCAPE: Math.PI / 3,
+  CAMERA_ALPHA_DEFAULT: -Math.PI / 4,
+  
+  // Performance Settings
+  TARGET_FPS: 60,
+  LOW_FPS_THRESHOLD: 30,
+  PERFORMANCE_WARNING_INTERVAL: 5000,
+  
+  // UI Settings
+  HEALTH_BAR_WIDTH: 2,
+  HEALTH_BAR_HEIGHT: 0.2,
+  HEALTH_BAR_OFFSET_Y: 1.5,
+  RANGE_INDICATOR_TESSELLATION: 32,
+  
+  // Particle Settings
+  PARTICLE_COUNT: 50,
+  PARTICLE_MIN_SIZE: 0.1,
+  PARTICLE_MAX_SIZE: 0.3,
+  PARTICLE_MIN_LIFETIME: 0.5,
+  PARTICLE_MAX_LIFETIME: 1,
+  
+  // Animation Settings
+  ANIMATION_FRAME_RATE: 60,
+  UPGRADE_ANIMATION_DURATION: 20,
+  TRAFFIC_MOVE_ANIMATION_EASING: new BABYLON.QuadraticEase(),
+} as const;
+```
+
+### 4. Accessibility Considerations
+
+```typescript
+// src/managers/AccessibilityManager.ts
+export class AccessibilityManager {
+  private highContrastMode: boolean = false;
+  private reducedMotionMode: boolean = false;
+  private screenReaderMode: boolean = false;
+
+  constructor() {
+    this.detectAccessibilityPreferences();
+    this.setupAccessibilityListeners();
+  }
+
+  private detectAccessibilityPreferences(): void {
+    // Check for high contrast mode
+    if (window.matchMedia('(prefers-contrast: high)').matches) {
+      this.highContrastMode = true;
+    }
+
+    // Check for reduced motion preference
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.reducedMotionMode = true;
+    }
+
+    // Check for screen reader
+    this.screenReaderMode = this.detectScreenReader();
+  }
+
+  private detectScreenReader(): boolean {
+    const testElement = document.createElement('div');
+    testElement.setAttribute('aria-hidden', 'true');
+    testElement.style.position = 'absolute';
+    testElement.style.left = '-9999px';
+    document.body.appendChild(testElement);
+    
+    const isDetected = window.getComputedStyle(testElement).visibility === 'hidden';
+    document.body.removeChild(testElement);
+    
+    return isDetected;
+  }
+
+  private setupAccessibilityListeners(): void {
+    window.matchMedia('(prefers-contrast: high)').addEventListener('change', (e) => {
+      this.highContrastMode = e.matches;
+      this.updateAccessibilitySettings();
+    });
+
+    window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', (e) => {
+      this.reducedMotionMode = e.matches;
+      this.updateAccessibilitySettings();
+    });
+  }
+
+  private updateAccessibilitySettings(): void {
+    // Update game settings based on accessibility preferences
+    const event = new CustomEvent('accessibilityChanged', {
+      detail: {
+        highContrast: this.highContrastMode,
+        reducedMotion: this.reducedMotionMode,
+        screenReader: this.screenReaderMode
+      }
+    });
+    window.dispatchEvent(event);
+  }
+
+  getAccessibilitySettings() {
+    return {
+      highContrastMode: this.highContrastMode,
+      reducedMotionMode: this.reducedMotionMode,
+      screenReaderMode: this.screenReaderMode
+    };
+  }
+}
+```
+
+### 5. Improved Asset Manager
+
+```typescript
+// src/managers/AssetManager.ts
+export class AssetManager {
+  private static instance: AssetManager;
+  private loadedAssets: Map<string, any> = new Map();
+  private loadingPromises: Map<string, Promise<any>> = new Map();
+  private scene: BABYLON.Scene | null = null;
+
+  private constructor() {}
+
+  static getInstance(): AssetManager {
+    if (!AssetManager.instance) {
+      AssetManager.instance = new AssetManager();
+    }
+    return AssetManager.instance;
+  }
+
+  initialize(scene: BABYLON.Scene): void {
+    this.scene = scene;
+  }
+
+  async preloadAssets(assetList: AssetLoadConfig[]): Promise<void> {
+    const loadPromises = assetList.map(config => this.loadAsset(config));
+    await Promise.all(loadPromises);
+  }
+
+  async loadAsset(config: AssetLoadConfig): Promise<any> {
+    if (this.loadedAssets.has(config.key)) {
+      return this.loadedAssets.get(config.key);
+    }
+
+    if (this.loadingPromises.has(config.key)) {
+      return this.loadingPromises.get(config.key);
+    }
+
+    const promise = this.performLoad(config);
+    this.loadingPromises.set(config.key, promise);
+
+    try {
+      const asset = await promise;
+      this.loadedAssets.set(config.key, asset);
+      this.loadingPromises.delete(config.key);
+      return asset;
+    } catch (error) {
+      this.loadingPromises.delete(config.key);
+      console.error(`Failed to load asset ${config.key}:`, error);
+      throw error;
+    }
+  }
+
+  private async performLoad(config: AssetLoadConfig): Promise<any> {
+    if (!this.scene) {
+      throw new Error('AssetManager not initialized with a scene');
+    }
+
+    switch (config.type) {
+      case 'texture':
+        return new BABYLON.Texture(config.path, this.scene);
+      case 'model':
+        return BABYLON.SceneLoader.ImportMeshAsync('', config.path, config.filename, this.scene);
+      case 'sound':
+        return new BABYLON.Sound(config.key, config.path, this.scene);
+      default:
+        throw new Error(`Unknown asset type: ${config.type}`);
+    }
+  }
+
+  getTexture(key: string): BABYLON.Texture | undefined {
+    return this.loadedAssets.get(key) as BABYLON.Texture;
+  }
+
+  getMeshes(key: string): BABYLON.Mesh[] | undefined {
+    return this.loadedAssets.get(key) as BABYLON.Mesh[];
+  }
+
+  getSound(key: string): BABYLON.Sound | undefined {
+    return this.loadedAssets.get(key) as BABYLON.Sound;
+  }
+
+  clearCache(): void {
+    this.loadedAssets.forEach((asset, key) => {
+      if (asset.dispose) {
+        asset.dispose();
+      }
+    });
+    this.loadedAssets.clear();
+    this.loadingPromises.clear();
+  }
+}
+
+interface AssetLoadConfig {
+  key: string;
+  type: 'texture' | 'model' | 'sound';
+  path: string;
+  filename?: string;
+}
+
+export const assetManager = AssetManager.getInstance();
+```
+
+### 6. Adaptive Quality Settings
+
+```typescript
+// src/managers/QualityManager.ts
+export class QualityManager {
+  private currentQuality: QualityLevel = QualityLevel.HIGH;
+  private performanceMonitor: PerformanceMonitor;
+
+  constructor(performanceMonitor: PerformanceMonitor) {
+    this.performanceMonitor = performanceMonitor;
+    this.setupAutoQualityAdjustment();
+  }
+
+  private setupAutoQualityAdjustment(): void {
+    setInterval(() => {
+      const fps = this.performanceMonitor.getCurrentFPS();
+      this.adjustQualityBasedOnFPS(fps);
+    }, GAME_CONFIG.PERFORMANCE_WARNING_INTERVAL);
+  }
+
+  private adjustQualityBasedOnFPS(fps: number): void {
+    if (fps < 20 && this.currentQuality !== QualityLevel.LOW) {
+      this.setQuality(QualityLevel.LOW);
+    } else if (fps < 40 && this.currentQuality !== QualityLevel.MEDIUM) {
+      this.setQuality(QualityLevel.MEDIUM);
+    } else if (fps > 55 && this.currentQuality !== QualityLevel.HIGH) {
+      this.setQuality(QualityLevel.HIGH);
+    }
+  }
+
+  setQuality(level: QualityLevel): void {
+    this.currentQuality = level;
+    this.applyQualitySettings(level);
+    console.log(`Quality set to ${QualityLevel[level]}`);
+  }
+
+  private applyQualitySettings(level: QualityLevel): void {
+    const scene = this.performanceMonitor.getScene();
+    
+    switch (level) {
+      case QualityLevel.LOW:
+        scene.getEngine().setHardwareScalingLevel(1.5);
+        scene.autoClear = false;
+        scene.particleSystems.forEach(ps => ps.emitRate = Math.floor(ps.emitRate * 0.3));
+        break;
+      case QualityLevel.MEDIUM:
+        scene.getEngine().setHardwareScalingLevel(1.2);
+        scene.autoClear = false;
+        scene.particleSystems.forEach(ps => ps.emitRate = Math.floor(ps.emitRate * 0.6));
+        break;
+      case QualityLevel.HIGH:
+        scene.getEngine().setHardwareScalingLevel(1.0);
+        scene.autoClear = true;
+        scene.particleSystems.forEach(ps => ps.emitRate = Math.floor(ps.emitRate * 1.0));
+        break;
+    }
+  }
+}
+
+export enum QualityLevel {
+  LOW = 0,
+  MEDIUM = 1,
+  HIGH = 2
+}
+```
+
+### Implementation Priority
+
+1. **Critical (Before Phase 1)**:
+   - Update `GAME_CONFIG` with all magic number replacements
+   - Implement enhanced `EventBus` with error handling
+   - Create `AssetManager` for better asset handling
+
+2. **High (During Phase 1-2)**:
+   - Implement `PerformanceMonitor` for mobile optimization
+   - Add `MeshOptimizer` for rendering performance
+   - Create `AccessibilityManager` for broader user reach
+
+3. **Medium (During Phase 3-4)**:
+   - Implement `QualityManager` for adaptive performance
+   - Add comprehensive error logging
+   - Implement automated performance testing
+
+### Testing Recommendations
+
+1. **Performance Testing**:
+   - Add automated performance benchmarks to CI/CD
+   - Test on actual mobile devices (not just emulators)
+   - Profile memory usage over extended gameplay sessions
+
+2. **Accessibility Testing**:
+   - Test with screen readers (NVDA, VoiceOver, TalkBack)
+   - Test keyboard navigation
+   - Test high contrast modes
+   - Test reduced motion preferences
+
+3. **Cross-Browser Testing**:
+   - Test on Chrome, Firefox, Safari, Edge
+   - Test on iOS Safari (major mobile browser)
+   - Test on Android Chrome
+
+### Conclusion
+
+The architecture plan is solid and well-structured. The improvements documented above address the identified concerns and provide a more robust foundation for implementation. Key areas of focus:
+
+1. **Performance**: Comprehensive monitoring and adaptive quality settings
+2. **Reliability**: Enhanced error handling and asset management
+3. **Accessibility**: Support for diverse user needs
+4. **Maintainability**: Elimination of magic numbers and better code organization
+
+These improvements should be implemented before or during Phase 1 of development to ensure a solid foundation for the rest of the project.
 
 ---
 

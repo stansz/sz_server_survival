@@ -201,7 +201,6 @@ npm run format       # Format code with Prettier
 ```
 
 For detailed architecture documentation, see:
-- [Architecture Plan](plans/architecture-plan.md)
 - [3D Architecture Plan](plans/architecture-plan-3d.md)
 
 ---
