@@ -12,13 +12,27 @@ export type GameEventMap = {
   'service-placed': { position: Vector3; type: ServiceType };
   'service-upgraded': { serviceId: string; newLevel: number };
   'service-failed': { serviceId: string };
-  'wave-started': { waveNumber: number; rps: number };
-  'wave-completed': { waveNumber: number };
-  'game-over': { reason: string; score: number };
+  'wave-started': { wave: number; rps: number };
+  'wave-completed': { wave: number };
+  'game-over': { reason: string; score?: number };
   'budget-changed': { newBudget: number; delta: number };
   'reputation-changed': { newReputation: number; delta: number };
   'event-triggered': { eventId: string; duration: number };
   'event-ended': { eventId: string };
+  // Scene management events
+  'boot-complete': {};
+  'game-start': { mode: string };
+  'game-paused': {};
+  'game-resumed': {};
+  'pause-resume': {};
+  'pause-restart': {};
+  'pause-quit': {};
+  'gameover-restart': {};
+  'gameover-menu': {};
+  'sandbox-start': { settings: any };
+  'sandbox-menu': {};
+  'mode-selected': { mode: string };
+  'grid-clicked': { position: Vector3 };
 };
 
 export type GameEvent = keyof GameEventMap;

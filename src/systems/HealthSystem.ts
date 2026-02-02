@@ -127,6 +127,13 @@ export class HealthSystem {
   }
 
   /**
+   * Clear all services
+   */
+  clear(): void {
+    this.services.clear();
+  }
+
+  /**
    * Reset health system
    */
   reset(): void {

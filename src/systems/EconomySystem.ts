@@ -195,6 +195,31 @@ export class EconomySystem {
   }
 
   /**
+   * Get current budget
+   */
+  getBudget(): number {
+    return this.resources.budget;
+  }
+
+  /**
+   * Get current reputation
+   */
+  getReputation(): number {
+    return this.resources.reputation;
+  }
+
+  /**
+   * Set budget (for sandbox mode)
+   */
+  setBudget(amount: number): void {
+    this.resources.budget = amount;
+    eventBus.emit('budget-changed', {
+      newBudget: this.resources.budget,
+      delta: 0,
+    });
+  }
+
+  /**
    * Reset economy
    */
   reset(): void {

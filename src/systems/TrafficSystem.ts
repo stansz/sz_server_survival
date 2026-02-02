@@ -34,10 +34,10 @@ export class TrafficSystem {
     this.scene = scene;
     this.grid = grid;
 
-    // Subscribe to events
-    eventBus.on('wave-started', ({ rps }) => {
-      this.rps = rps;
-    });
+  // Subscribe to events
+  eventBus.on('wave-started', ({ rps }) => {
+    this.rps = rps;
+  });
 
     eventBus.on('event-triggered', ({ eventId, duration }) => {
       this.handleEvent(eventId, duration);

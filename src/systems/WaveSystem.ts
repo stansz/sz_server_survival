@@ -53,7 +53,7 @@ export class WaveSystem {
     this.currentWave = waveConfig.waveNumber;
 
     eventBus.emit('wave-started', {
-      waveNumber: this.currentWave,
+      wave: this.currentWave,
       rps: waveConfig.rps,
     });
 
@@ -94,6 +94,14 @@ export class WaveSystem {
     });
 
     console.log(`Event triggered: ${eventId}`);
+  }
+
+  /**
+   * Start wave system
+   */
+  start(): void {
+    // Wave system starts automatically in update()
+    // This method is for explicit start if needed
   }
 
   /**
