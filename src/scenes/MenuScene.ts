@@ -129,23 +129,23 @@ export class MenuScene {
   }
 
   /**
-   * Create mode selection buttons
+   * Create mode selection buttons (directly start game on click)
    */
   private createModeButtons(): void {
     console.log('[MenuScene] Creating mode buttons...');
 
-    // Survival mode button
+    // Survival mode button - directly starts game
     this.createButton(
       'Survival Mode',
-      () => this.selectMode(GameMode.SURVIVAL),
+      () => this.startGameWithMode(GameMode.SURVIVAL),
       '#00aaff',
       0
     );
 
-    // Sandbox mode button
+    // Sandbox mode button - directly starts game
     this.createButton(
       'Sandbox Mode',
-      () => this.selectMode(GameMode.SANDBOX),
+      () => this.startGameWithMode(GameMode.SANDBOX),
       '#00aaff',
       1
     );
@@ -154,7 +154,7 @@ export class MenuScene {
   }
 
   /**
-   * Create menu buttons
+   * Create menu buttons (Settings and Credits only - Start Game removed)
    */
   private createMenuButtons(): void {
     console.log('[MenuScene] Creating menu buttons...');
@@ -173,14 +173,6 @@ export class MenuScene {
       () => this.handleCredits(),
       '#00aaff',
       3
-    );
-
-    // Start game button
-    this.createButton(
-      'Start Game',
-      () => this.startGame(),
-      '#00ff00',
-      4
     );
 
     console.log('[MenuScene] Menu buttons created');
@@ -203,7 +195,7 @@ export class MenuScene {
     button.width = '24%';
     button.height = '8%';
     button.color = '#ffffff';
-    button.fontSize = '30vmin';
+    button.fontSize = '27vmin';
     button.fontFamily = 'Arial, sans-serif';
     button.fontWeight = 'bold';
     button.background = color;
@@ -258,14 +250,22 @@ export class MenuScene {
   }
 
   /**
-   * Select game mode
+   * Start game with specific mode (called directly from mode buttons)
    */
-  private selectMode(mode: GameMode): void {
+  private startGameWithMode(mode: GameMode): void {
+    if (this.isTransitioning) return;
+
+    this.isTransitioning = true;
     this.selectedMode = mode;
-    console.log(`Selected mode: ${mode}`);
+    console.log(`Starting game in ${mode} mode`);
 
     // Emit event
-    eventBus.emit('mode-selected', { mode });
+    eventBus.emit('game-start', { mode });
+
+    // Call callback
+    if (this.onStartGame) {
+      this.onStartGame(mode);
+    }
   }
 
   /**
@@ -287,24 +287,6 @@ export class MenuScene {
 
     if (this.onShowCredits) {
       this.onShowCredits();
-    }
-  }
-
-  /**
-   * Start game
-   */
-  private startGame(): void {
-    if (this.isTransitioning) return;
-
-    this.isTransitioning = true;
-    console.log(`Starting game in ${this.selectedMode} mode`);
-
-    // Emit event
-    eventBus.emit('game-start', { mode: this.selectedMode });
-
-    // Call callback
-    if (this.onStartGame) {
-      this.onStartGame(this.selectedMode);
     }
   }
 
